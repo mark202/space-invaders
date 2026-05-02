@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Invaders 👾</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: radial-gradient(circle at 20% 50%, rgba(37, 110, 255, 0.15) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 80%, rgba(168, 85, 247, 0.15) 0%, transparent 50%),
+                        linear-gradient(135deg, #0f172a 0%, #1a1f3a 100%);
+            font-family: 'Courier New', monospace;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: #e5e7eb;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2rem;
+            width: 100%;
+            max-width: 900px;
+            padding: 2rem;
+        }
+
+        .header {
+            text-align: center;
+            z-index: 10;
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 0 30px rgba(96, 165, 250, 0.3);
+            letter-spacing: 3px;
+        }
+
+        .subtitle {
+            color: #9ca3af;
+            font-size: 0.9rem;
+            letter-spacing: 2px;
+        }
+
+        .game-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            aspect-ratio: 4 / 3;
+            background: linear-gradient(145deg, rgba(17, 24, 39, 0.9), rgba(17, 24, 39, 0.75));
+            border: 2px solid rgba(96, 165, 250, 0.3);
+            border-radius: 12px;
+            box-shadow: 0 0 40px rgba(96, 165, 250, 0.2),
+                        inset 0 0 40px rgba(37, 110, 255, 0.05);
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .hud {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            max-width: 800px;
+            padding: 1rem 2rem;
+            background: rgba(17, 24, 39, 0.6);
+            border: 1px solid rgba(96, 165, 250, 0.2);
+            border-radius: 8px;
+            font-size: 0.9rem;
+            letter-spacing: 1px;
+            z-index: 10;
+        }
+
+        .stat {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .stat-label {
+            color: #9ca3af;
+        }
+
+        .stat-value {
+            color: #60a5fa;
+            font-weight: bold;
+            min-width: 50px;
+        }
+
+        .controls {
+            text-align: center;
+            color: #9ca3af;
+            font-size: 0.85rem;
+            z-index: 10;
+        }
+
+        .controls-title {
+            color: #cbd5e1;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+        }
+
+        .controls-list {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .control-item {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .key {
+            background: rgba(96, 165, 250, 0.2);
+            border: 1px solid rgba(96, 165, 250, 0.4);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-family: monospace;
+            color: #60a5fa;
+        }
+
+        .game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            backdrop-filter: blur(2px);
+        }
+
+        .game-over-screen.show {
+            display: flex;
+        }
+
+        .game-over-content {
+            text-align: center;
+        }
+
+        .game-over-title {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: #ef4444;
+            text-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+        }
+
+        .game-over-score {
+            font-size: 1.5rem;
+            margin-bottom: 2rem;
+            color: #60a5fa;
+        }
+
+        .game-over-button {
+            padding: 0.75rem 2rem;
+            background: linear-gradient(90deg, #256eff, #1754e6);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 1px;
+            font-size: 0.9rem;
+            transition: all 150ms ease;
+        }
+
+        .game-over-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 20px rgba(37, 110, 255, 0.5);
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+
+            .controls-list {
+                gap: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>👾 SPACE INVADERS 👾</h1>
+            <p class="subtitle">DEFEND EARTH FROM THE ALIEN THREAT</p>
+        </div>
+
+        <div class="game-wrapper">
+            <canvas id="gameCanvas"></canvas>
+            <div class="game-over-screen" id="gameOverScreen">
+                <div class="game-over-content">
+                    <div class="game-over-title">GAME OVER</div>
+                    <div class="game-over-score">Final Score: <span id="finalScore">0</span></div>
+                    <button class="game-over-button" onclick="location.reload()">Play Again</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="hud">
+            <div class="stat">
+                <span class="stat-label">SCORE:</span>
+                <span class="stat-value" id="score">0</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">LEVEL:</span>
+                <span class="stat-value" id="level">1</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">LIVES:</span>
+                <span class="stat-value" id="lives">3</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">ENEMIES:</span>
+                <span class="stat-value" id="enemies">0</span>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="controls-title">CONTROLS</div>
+            <div class="controls-list">
+                <div class="control-item">
+                    <span class="key">←</span> <span class="key">→</span>
+                    <span>Move</span>
+                </div>
+                <div class="control-item">
+                    <span class="key">SPACE</span>
+                    <span>Shoot</span>
+                </div>
+                <div class="control-item">
+                    <span class="key">P</span>
+                    <span>Pause</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
