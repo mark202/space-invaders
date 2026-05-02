@@ -15,21 +15,84 @@ let gameState = {
         y: GAME_HEIGHT - 60,
         width: PLAYER_WIDTH,
         height: PLAYER_HEIGHT,
-        speed: 6
+        speed: 6,
+        shield: 1
     },
     enemies: [],
     bullets: [],
     enemyBullets: [],
+    particles: [],
+    explosions: [],
     score: 0,
     level: 1,
     lives: 3,
     gameOver: false,
     paused: false,
-    enemyShootChance: 0.003
+    enemyShootChance: 0.003,
+    time: 0
 };
 
 let keys = {};
 let canvas, ctx;
+
+// Particle system
+class Particle {
+    constructor(x, y, vx, vy, color, life = 30) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.color = color;
+        this.life = life;
+        this.maxLife = life;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += 0.2; // gravity
+        this.life--;
+    }
+
+    draw(ctx) {
+        const alpha = this.life / this.maxLife;
+        ctx.fillStyle = this.color.replace(')', `, ${alpha})`).replace('rgb', 'rgba');
+        ctx.fillRect(this.x, this.y, 3, 3);
+    }
+}
+
+// Explosion effect
+class Explosion {
+    constructor(x, y, color = 'rgb(239, 68, 68)') {
+        this.x = x;
+        this.y = y;
+        this.radius = 0;
+        this.maxRadius = 25;
+        this.speed = 1.5;
+        this.color = color;
+        this.alpha = 1;
+    }
+
+    update() {
+        this.radius += this.speed;
+        this.alpha = 1 - (this.radius / this.maxRadius);
+    }
+
+    draw(ctx) {
+        ctx.fillStyle = this.color.replace(')', `, ${this.alpha * 0.6})`).replace('rgb', 'rgba');
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.strokeStyle = this.color.replace(')', `, ${this.alpha})`).replace('rgb', 'rgba');
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    isDone() {
+        return this.radius >= this.maxRadius;
+    }
+}
 
 // Initialize game
 function init() {
@@ -39,14 +102,10 @@ function init() {
     canvas.width = GAME_WIDTH;
     canvas.height = GAME_HEIGHT;
     
-    // Set up event listeners
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('keyup', handleKeyUp);
     
-    // Create initial enemy wave
     createEnemyWave();
-    
-    // Start game loop
     gameLoop();
 }
 
@@ -68,7 +127,9 @@ function createEnemyWave() {
                 height: ENEMY_HEIGHT,
                 speed: 1.5 + gameState.level * 0.3,
                 direction: 1,
-                health: 1
+                health: 1,
+                bobOffset: Math.random() * Math.PI * 2,
+                type: Math.floor(row / 1) // Different enemy types
             });
         }
     }
@@ -112,18 +173,28 @@ function shoot() {
             height: BULLET_HEIGHT,
             speed: 8
         });
+        
+        // Particle effect
+        for (let i = 0; i < 3; i++) {
+            gameState.particles.push(new Particle(
+                gameState.player.x + gameState.player.width / 2,
+                gameState.player.y,
+                (Math.random() - 0.5) * 2,
+                Math.random() - 1,
+                'rgb(96, 165, 250)',
+                15
+            ));
+        }
     }
 }
 
 // Update bullets
 function updateBullets() {
-    // Player bullets
     gameState.bullets = gameState.bullets.filter(bullet => {
         bullet.y -= bullet.speed;
         return bullet.y > 0;
     });
     
-    // Enemy bullets
     gameState.enemyBullets = gameState.enemyBullets.filter(bullet => {
         bullet.y += bullet.speed;
         return bullet.y < GAME_HEIGHT;
@@ -136,13 +207,11 @@ function updateEnemies() {
     let minX = GAME_WIDTH;
     let maxX = 0;
     
-    // Find boundaries
     for (let enemy of gameState.enemies) {
         minX = Math.min(minX, enemy.x);
         maxX = Math.max(maxX, enemy.x + enemy.width);
     }
     
-    // Check if should change direction
     if (minX <= 10 || maxX >= GAME_WIDTH - 10) {
         moveDown = true;
         for (let enemy of gameState.enemies) {
@@ -150,14 +219,13 @@ function updateEnemies() {
         }
     }
     
-    // Update enemy positions
     for (let enemy of gameState.enemies) {
         enemy.x += enemy.speed * enemy.direction;
         if (moveDown) {
             enemy.y += 40;
         }
+        enemy.bobOffset += 0.05;
         
-        // Enemies shoot
         if (Math.random() < gameState.enemyShootChance) {
             gameState.enemyBullets.push({
                 x: enemy.x + enemy.width / 2 - BULLET_WIDTH / 2,
@@ -166,8 +234,36 @@ function updateEnemies() {
                 height: BULLET_HEIGHT,
                 speed: 4
             });
+            
+            // Particle effect for enemy shot
+            for (let i = 0; i < 2; i++) {
+                gameState.particles.push(new Particle(
+                    enemy.x + enemy.width / 2,
+                    enemy.y + enemy.height,
+                    (Math.random() - 0.5) * 2,
+                    Math.random(),
+                    'rgb(251, 191, 36)',
+                    12
+                ));
+            }
         }
     }
+}
+
+// Update particles
+function updateParticles() {
+    gameState.particles = gameState.particles.filter(p => {
+        p.update();
+        return p.life > 0;
+    });
+}
+
+// Update explosions
+function updateExplosions() {
+    gameState.explosions = gameState.explosions.filter(e => {
+        e.update();
+        return !e.isDone();
+    });
 }
 
 // Collision detection
@@ -177,6 +273,28 @@ function checkCollisions() {
         for (let j = gameState.enemies.length - 1; j >= 0; j--) {
             if (isColliding(gameState.bullets[i], gameState.enemies[j])) {
                 gameState.bullets.splice(i, 1);
+                const enemy = gameState.enemies[j];
+                
+                // Create explosion
+                gameState.explosions.push(new Explosion(
+                    enemy.x + enemy.width / 2,
+                    enemy.y + enemy.height / 2,
+                    'rgb(239, 68, 68)'
+                ));
+                
+                // Particle burst
+                for (let k = 0; k < 12; k++) {
+                    const angle = (Math.PI * 2 * k) / 12;
+                    gameState.particles.push(new Particle(
+                        enemy.x + enemy.width / 2,
+                        enemy.y + enemy.height / 2,
+                        Math.cos(angle) * 3,
+                        Math.sin(angle) * 3,
+                        'rgb(239, 68, 68)',
+                        20
+                    ));
+                }
+                
                 gameState.enemies.splice(j, 1);
                 gameState.score += 10 * gameState.level;
                 break;
@@ -189,6 +307,13 @@ function checkCollisions() {
         if (isColliding(gameState.enemyBullets[i], gameState.player)) {
             gameState.enemyBullets.splice(i, 1);
             gameState.lives--;
+            
+            // Explosion at player
+            gameState.explosions.push(new Explosion(
+                gameState.player.x + gameState.player.width / 2,
+                gameState.player.y + gameState.player.height / 2,
+                'rgb(96, 165, 250)'
+            ));
             
             if (gameState.lives <= 0) {
                 gameState.gameOver = true;
@@ -225,21 +350,34 @@ function updateHUD() {
 
 // Draw functions
 function draw() {
-    // Clear canvas
+    // Animated background
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    
+    // Animated background stars
+    drawStarfield();
     
     // Draw grid
     drawGrid();
     
-    // Draw player
-    drawPlayer();
-    
-    // Draw enemies
+    // Draw enemies first (so they're behind other effects)
     drawEnemies();
+    
+    // Draw particles
+    for (let particle of gameState.particles) {
+        particle.draw(ctx);
+    }
+    
+    // Draw explosions
+    for (let explosion of gameState.explosions) {
+        explosion.draw(ctx);
+    }
     
     // Draw bullets
     drawBullets();
+    
+    // Draw player
+    drawPlayer();
     
     // Draw pause indicator
     if (gameState.paused) {
@@ -249,21 +387,34 @@ function draw() {
         ctx.font = 'bold 48px Courier New';
         ctx.textAlign = 'center';
         ctx.fillText('PAUSED', GAME_WIDTH / 2, GAME_HEIGHT / 2);
+        ctx.textAlign = 'left';
+    }
+}
+
+function drawStarfield() {
+    const time = gameState.time * 0.001;
+    ctx.fillStyle = 'rgba(96, 165, 250, 0.3)';
+    
+    for (let i = 0; i < 50; i++) {
+        const x = (i * 157 + time * 20) % GAME_WIDTH;
+        const y = (i * 73) % GAME_HEIGHT;
+        const size = (i % 3) + 0.5;
+        ctx.fillRect(x, y, size, size);
     }
 }
 
 function drawGrid() {
-    ctx.strokeStyle = 'rgba(96, 165, 250, 0.05)';
+    ctx.strokeStyle = 'rgba(96, 165, 250, 0.08)';
     ctx.lineWidth = 1;
     
-    for (let i = 0; i < GAME_WIDTH; i += 40) {
+    for (let i = 0; i < GAME_WIDTH; i += 50) {
         ctx.beginPath();
         ctx.moveTo(i, 0);
         ctx.lineTo(i, GAME_HEIGHT);
         ctx.stroke();
     }
     
-    for (let i = 0; i < GAME_HEIGHT; i += 40) {
+    for (let i = 0; i < GAME_HEIGHT; i += 50) {
         ctx.beginPath();
         ctx.moveTo(0, i);
         ctx.lineTo(GAME_WIDTH, i);
@@ -272,64 +423,163 @@ function drawGrid() {
 }
 
 function drawPlayer() {
-    // Player body
+    const px = gameState.player.x;
+    const py = gameState.player.y;
+    const w = gameState.player.width;
+    const h = gameState.player.height;
+    
+    // Glow/shield effect
+    ctx.shadowColor = 'rgba(96, 165, 250, 0.8)';
+    ctx.shadowBlur = 15;
+    
+    // Main body
     ctx.fillStyle = '#60a5fa';
-    ctx.fillRect(gameState.player.x, gameState.player.y, gameState.player.width, gameState.player.height);
+    ctx.beginPath();
+    ctx.moveTo(px + w / 2, py);
+    ctx.lineTo(px + w, py + h * 0.7);
+    ctx.lineTo(px + w * 0.7, py + h);
+    ctx.lineTo(px + w / 2, py + h * 0.8);
+    ctx.lineTo(px + w * 0.3, py + h);
+    ctx.lineTo(px, py + h * 0.7);
+    ctx.closePath();
+    ctx.fill();
     
-    // Glow effect
-    ctx.strokeStyle = 'rgba(96, 165, 250, 0.8)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(gameState.player.x - 2, gameState.player.y - 2, gameState.player.width + 4, gameState.player.height + 4);
-    
-    // Cockpit detail
+    // Cockpit
     ctx.fillStyle = '#1754e6';
-    ctx.fillRect(gameState.player.x + gameState.player.width / 2 - 3, gameState.player.y + 5, 6, 8);
+    ctx.beginPath();
+    ctx.arc(px + w / 2, py + h * 0.3, 4, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Engine glow
+    ctx.fillStyle = 'rgba(96, 165, 250, 0.6)';
+    ctx.fillRect(px + w * 0.35, py + h * 0.75, w * 0.3, 3);
+    
+    ctx.shadowBlur = 0;
+    
+    // Outline
+    ctx.strokeStyle = 'rgba(96, 165, 250, 1)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(px + w / 2, py);
+    ctx.lineTo(px + w, py + h * 0.7);
+    ctx.lineTo(px + w * 0.7, py + h);
+    ctx.lineTo(px + w / 2, py + h * 0.8);
+    ctx.lineTo(px + w * 0.3, py + h);
+    ctx.lineTo(px, py + h * 0.7);
+    ctx.closePath();
+    ctx.stroke();
 }
 
 function drawEnemies() {
     for (let enemy of gameState.enemies) {
-        // Enemy body
-        ctx.fillStyle = '#ef4444';
-        ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
+        const ex = enemy.x;
+        const ey = enemy.y + Math.sin(gameState.time * 0.01 + enemy.bobOffset) * 3;
+        const ew = enemy.width;
+        const eh = enemy.height;
         
         // Glow effect
-        ctx.shadowColor = 'rgba(239, 68, 68, 0.6)';
-        ctx.shadowBlur = 10;
-        ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(enemy.x, enemy.y, enemy.width, enemy.height);
-        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'rgba(239, 68, 68, 0.8)';
+        ctx.shadowBlur = 12;
         
-        // Eyes
-        ctx.fillStyle = '#fca5a5';
-        ctx.fillRect(enemy.x + 5, enemy.y + 5, 4, 4);
-        ctx.fillRect(enemy.x + enemy.width - 9, enemy.y + 5, 4, 4);
+        if (enemy.type === 0) {
+            // Octopus-like enemy
+            ctx.fillStyle = '#ef4444';
+            
+            // Head
+            ctx.beginPath();
+            ctx.arc(ex + ew / 2, ey + eh * 0.4, ew * 0.35, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Tentacles
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#ef4444';
+            for (let i = 0; i < 4; i++) {
+                const angle = (Math.PI / 3) + (i * Math.PI / 3);
+                ctx.beginPath();
+                ctx.moveTo(ex + ew / 2, ey + eh * 0.5);
+                ctx.lineTo(
+                    ex + ew / 2 + Math.cos(angle) * (ew * 0.4),
+                    ey + eh * 0.5 + Math.sin(angle) * (eh * 0.5)
+                );
+                ctx.stroke();
+            }
+            
+            // Eyes
+            ctx.fillStyle = '#fca5a5';
+            ctx.beginPath();
+            ctx.arc(ex + ew * 0.3, ey + eh * 0.3, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(ex + ew * 0.7, ey + eh * 0.3, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            // Spaceship-like enemy
+            ctx.fillStyle = '#dc2626';
+            
+            ctx.beginPath();
+            ctx.moveTo(ex + ew / 2, ey);
+            ctx.lineTo(ex + ew, ey + eh * 0.5);
+            ctx.lineTo(ex + ew * 0.6, ey + eh);
+            ctx.lineTo(ex + ew * 0.4, ey + eh);
+            ctx.lineTo(ex, ey + eh * 0.5);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Window
+            ctx.fillStyle = '#fca5a5';
+            ctx.beginPath();
+            ctx.arc(ex + ew / 2, ey + eh * 0.4, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        ctx.shadowBlur = 0;
     }
 }
 
 function drawBullets() {
-    // Player bullets
+    // Player bullets with glow
+    ctx.shadowColor = 'rgba(96, 165, 250, 0.8)';
+    ctx.shadowBlur = 8;
     ctx.fillStyle = '#60a5fa';
+    
     for (let bullet of gameState.bullets) {
         ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
-        ctx.shadowColor = 'rgba(96, 165, 250, 0.8)';
-        ctx.shadowBlur = 8;
+        
+        // Trailing light
+        ctx.fillStyle = 'rgba(96, 165, 250, 0.4)';
+        ctx.fillRect(bullet.x - 1, bullet.y + bullet.height, bullet.width + 2, 8);
+        ctx.fillStyle = '#60a5fa';
     }
+    
     ctx.shadowBlur = 0;
     
-    // Enemy bullets
+    // Enemy bullets with glow
+    ctx.shadowColor = 'rgba(251, 191, 36, 0.8)';
+    ctx.shadowBlur = 8;
     ctx.fillStyle = '#fbbf24';
+    
     for (let bullet of gameState.enemyBullets) {
         ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
+        
+        // Trailing light
+        ctx.fillStyle = 'rgba(251, 191, 36, 0.4)';
+        ctx.fillRect(bullet.x - 1, bullet.y - 8, bullet.width + 2, 8);
+        ctx.fillStyle = '#fbbf24';
     }
+    
+    ctx.shadowBlur = 0;
 }
 
 // Game loop
 function gameLoop() {
+    gameState.time++;
+    
     if (!gameState.gameOver && !gameState.paused) {
         updatePlayer();
         updateBullets();
         updateEnemies();
+        updateParticles();
+        updateExplosions();
         checkCollisions();
         
         // Level progression
